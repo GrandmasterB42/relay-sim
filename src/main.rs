@@ -234,115 +234,69 @@ fn setup(
             Name::new("Left Section"),
         ))
         .with_children(|root| {
-            // Upper Section
-            root.spawn((
-                NodeBundle {
-                    style: Style {
-                        display: Display::Flex,
-                        flex_grow: 1.,
-                        height: Val::Percent(50.),
-                        width: Val::Percent(100.),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                Name::new("Upper Section"),
-            ))
-            .with_children(|root| {
-                root.spawn(TextBundle::from_section(
-                    "Buttons",
-                    TextStyle {
-                        font_size: 40.,
-                        ..Default::default()
-                    },
-                ));
-            });
-
             let mut random = rand::thread_rng();
+
             root.spawn((
                 NodeBundle {
                     style: Style {
                         display: Display::Flex,
                         flex_grow: 1.,
-                        height: Val::Percent(50.),
+                        flex_direction: FlexDirection::Column,
+                        height: Val::Percent(100.),
                         width: Val::Percent(100.),
                         ..Default::default()
                     },
                     ..Default::default()
                 },
-                Name::new("Lower Section"),
+                Name::from("Light container"),
             ))
             .with_children(|root| {
-                root.spawn(TextBundle::from_section(
-                    "Lights",
-                    TextStyle {
-                        font_size: 40.,
-                        ..Default::default()
-                    },
-                ));
-
-                root.spawn((
-                    NodeBundle {
-                        style: Style {
-                            display: Display::Flex,
-                            flex_grow: 1.,
-                            flex_direction: FlexDirection::Column,
-                            height: Val::Percent(100.),
-                            width: Val::Percent(100.),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                    Name::from("Light container"),
-                ))
-                .with_children(|root| {
-                    for i in 1..=6 {
-                        root.spawn((
-                            ButtonBundle {
-                                style: Style {
-                                    width: Val::Px(100.),
-                                    height: Val::Px(50.),
-                                    justify_content: JustifyContent::Center,
-                                    align_items: AlignItems::Center,
-                                    border: UiRect::all(Val::Px(7.)),
-                                    ..Default::default()
-                                },
-                                border_color: BorderColor(Color::Rgba {
-                                    red: 0.9,
-                                    green: 0.9,
-                                    blue: 0.9,
-                                    alpha: 0.,
-                                }),
-                                background_color: BackgroundColor(Color::Rgba {
-                                    red: random.gen_range(0.0..1.0),
-                                    green: random.gen_range(0.0..1.0),
-                                    blue: random.gen_range(0.0..1.0),
-                                    alpha: 1.,
-                                }),
-
+                for i in 1..=8 {
+                    root.spawn((
+                        ButtonBundle {
+                            style: Style {
+                                width: Val::Px(100.),
+                                height: Val::Px(50.),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(7.)),
                                 ..Default::default()
                             },
-                            Name::new(format!("Light {} Button", i)),
-                            UILight {
-                                id: i,
-                                is_lit: false,
-                            },
-                        ))
-                        .with_children(|root| {
-                            root.spawn((
-                                TextBundle::from_section(
-                                    format!("-S{i}"),
-                                    TextStyle {
-                                        font_size: 20.,
-                                        color: Color::rgb(0.9, 0.9, 0.9),
-                                        ..Default::default()
-                                    },
-                                ),
-                                Name::new(format!("Light {} Button Text", i)),
-                            ));
-                        });
-                    }
-                });
+                            border_color: BorderColor(Color::Rgba {
+                                red: 0.9,
+                                green: 0.9,
+                                blue: 0.9,
+                                alpha: 0.,
+                            }),
+                            background_color: BackgroundColor(Color::Rgba {
+                                red: random.gen_range(0.0..1.0),
+                                green: random.gen_range(0.0..1.0),
+                                blue: random.gen_range(0.0..1.0),
+                                alpha: 1.,
+                            }),
+
+                            ..Default::default()
+                        },
+                        Name::new(format!("Light {} Button", i)),
+                        UILight {
+                            id: i,
+                            is_lit: false,
+                        },
+                    ))
+                    .with_children(|root| {
+                        root.spawn((
+                            TextBundle::from_section(
+                                format!("-P{i}"),
+                                TextStyle {
+                                    font_size: 20.,
+                                    color: Color::rgb(0.9, 0.9, 0.9),
+                                    ..Default::default()
+                                },
+                            ),
+                            Name::new(format!("Light {} Button Text", i)),
+                        ));
+                    });
+                }
             });
         });
     });
@@ -864,7 +818,6 @@ fn simulate(
         (source_2.0, source_1.0)
     };
 
-    // Walk the wires from the positive source by modifiying the Visited property for wire_positions, keeping track of what indices have been visited
     walk_wires(
         positive_source,
         Visited::Positive,
@@ -907,6 +860,10 @@ fn simulate(
                 .find(|ui_light| ui_light.id == light.id)
                 .unwrap()
                 .is_lit = true;
+        } else if wire_positions[top_index].1 == Visited::Unvisited
+            || wire_positions[bottom_index].1 == Visited::Unvisited
+        {
+            debug!("Unvisited Wire");
         }
     }
 }
@@ -928,7 +885,7 @@ fn walk_wires(
             wire_positions[index].1 = mark;
         } else {
             if wire_positions[index].1 != mark {
-                println!("Short Circuit");
+                error!("Short Circuit");
                 return Err(());
             }
             continue;
