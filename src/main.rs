@@ -3,31 +3,34 @@
 use bevy::{
     prelude::*,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
-    ui,
     window::PrimaryWindow,
 };
 
+#[cfg(debug_assertions)]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+
 use rand::Rng;
 
 fn main() {
-    App::new()
-        .insert_resource(ClearColor(Color::BLACK))
-        .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Circuit Simulator".to_string(),
-                    resolution: WINDOWRESOULTION.into(),
-                    present_mode: bevy::window::PresentMode::AutoVsync,
-                    resizable: false,
-                    ..Default::default()
-                }),
+    let mut app = App::new();
+    app.insert_resource(ClearColor(Color::BLACK)).add_plugins((
+        DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Circuit Simulator".to_string(),
+                resolution: WINDOWRESOULTION.into(),
+                present_mode: bevy::window::PresentMode::AutoVsync,
+                resizable: false,
                 ..Default::default()
             }),
-            SimPlugin,
-        ))
-        .add_plugins(WorldInspectorPlugin::new())
-        .run();
+            ..Default::default()
+        }),
+        SimPlugin,
+    ));
+
+    #[cfg(debug_assertions)]
+    app.add_plugins(WorldInspectorPlugin::new());
+
+    app.run();
 }
 
 // A Simple circuit simulation containing only a power source, buttons, lights and relays with their coil for activation and the switch part
@@ -69,13 +72,24 @@ struct RelaySwitch {
     bottom: GridPosition,
 }
 
-impl From<RelaySwitch> for Wire {
-    fn from(relay: RelaySwitch) -> Self {
+impl From<&RelaySwitch> for Wire {
+    fn from(relay: &RelaySwitch) -> Self {
         Self {
             first: relay.top,
             second: relay.bottom,
         }
     }
+}
+
+#[derive(Component)]
+struct RelayCoilSelect {
+    id: usize,
+}
+
+#[derive(Component)]
+struct RelaySwitchSelect {
+    id: usize,
+    typ: SwitchType,
 }
 
 // Label for buttons is -S{id}
@@ -202,6 +216,8 @@ impl Plugin for SimPlugin {
                     change_light_opacity,
                     handle_light_button_press,
                     handle_button_button_press,
+                    handle_relay_switch_button_press,
+                    handle_relay_coil_button_press,
                 ),
             )
             .add_systems(FixedUpdate, simulate);
@@ -254,6 +270,7 @@ fn setup(
                     width: Val::Px(280.),
                     display: Display::Flex,
                     flex_direction: FlexDirection::Row,
+                    flex_wrap: FlexWrap::Wrap,
                     ..Default::default()
                 },
                 background_color: BackgroundColor(Color::rgb(0.1, 0.1, 0.1)),
@@ -268,9 +285,8 @@ fn setup(
                 NodeBundle {
                     style: Style {
                         display: Display::Flex,
-                        flex_grow: 1.,
                         flex_direction: FlexDirection::Column,
-                        height: Val::Percent(100.),
+                        width: Val::Px(100.),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -278,7 +294,7 @@ fn setup(
                 Name::from("Light container"),
             ))
             .with_children(|root| {
-                for i in 1..=8 {
+                for i in 1..=6 {
                     root.spawn((
                         ButtonBundle {
                             style: Style {
@@ -337,7 +353,7 @@ fn setup(
                 Name::new("Button Container"),
             ))
             .with_children(|root| {
-                for i in 1..=8 {
+                for i in 1..=6 {
                     let color = Color::Rgba {
                         red: random.gen_range(0.0..1.0),
                         green: random.gen_range(0.0..1.0),
@@ -473,6 +489,159 @@ fn setup(
                     });
                 }
             });
+            root.spawn((
+                NodeBundle {
+                    style: Style {
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Column,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                Name::new("Relay Container"),
+            ))
+            .with_children(|root| {
+                for i in 1..=6 {
+                    root.spawn((
+                        NodeBundle {
+                            style: Style {
+                                display: Display::Flex,
+                                flex_direction: FlexDirection::Row,
+                                height: Val::Px(50.),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                        Name::new(format!("Relay {} Container", i)),
+                    ))
+                    .with_children(|root| {
+                        // Like the button with three buttons, one with label -K{id} for the coil, one for NO and one for NC for the switches
+                        let color = Color::Rgba {
+                            red: random.gen_range(0.0..1.0),
+                            green: random.gen_range(0.0..1.0),
+                            blue: random.gen_range(0.0..1.0),
+                            alpha: 1.,
+                        };
+
+                        root.spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Px(50.),
+                                    height: Val::Px(50.),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(Val::Px(7.)),
+                                    ..Default::default()
+                                },
+                                border_color: BorderColor(Color::Rgba {
+                                    red: 0.9,
+                                    green: 0.9,
+                                    blue: 0.9,
+                                    alpha: 0.4,
+                                }),
+                                background_color: BackgroundColor(color),
+
+                                ..Default::default()
+                            },
+                            Name::new(format!("Relay {} Coil Button", i)),
+                            RelayCoilSelect { id: i },
+                        ))
+                        .with_children(|root| {
+                            root.spawn((
+                                TextBundle::from_section(
+                                    format!("-K{i}"),
+                                    TextStyle {
+                                        font_size: 20.,
+                                        color: Color::rgb(0.9, 0.9, 0.9),
+                                        ..Default::default()
+                                    },
+                                ),
+                                Name::new(format!("Relay {} Coil Button Text", i)),
+                            ));
+                        });
+
+                        root.spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Px(50.),
+                                    height: Val::Px(50.),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(Val::Px(7.)),
+                                    ..Default::default()
+                                },
+                                border_color: BorderColor(Color::Rgba {
+                                    red: 0.9,
+                                    green: 0.9,
+                                    blue: 0.9,
+                                    alpha: 0.4,
+                                }),
+                                background_color: BackgroundColor(color),
+
+                                ..Default::default()
+                            },
+                            Name::new(format!("Relay {} NO Button", i)),
+                            RelaySwitchSelect {
+                                id: i,
+                                typ: SwitchType::NormallyOpen,
+                            },
+                        ))
+                        .with_children(|root| {
+                            root.spawn((
+                                TextBundle::from_section(
+                                    "NO",
+                                    TextStyle {
+                                        font_size: 20.,
+                                        color: Color::rgb(0.9, 0.9, 0.9),
+                                        ..Default::default()
+                                    },
+                                ),
+                                Name::new(format!("Relay {} NO Button Text", i)),
+                            ));
+                        });
+
+                        root.spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Px(50.),
+                                    height: Val::Px(50.),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(Val::Px(7.)),
+                                    ..Default::default()
+                                },
+                                border_color: BorderColor(Color::Rgba {
+                                    red: 0.9,
+                                    green: 0.9,
+                                    blue: 0.9,
+                                    alpha: 0.4,
+                                }),
+                                background_color: BackgroundColor(color),
+
+                                ..Default::default()
+                            },
+                            Name::new(format!("Relay {} NC Button", i)),
+                            RelaySwitchSelect {
+                                id: i,
+                                typ: SwitchType::NormallyClosed,
+                            },
+                        ))
+                        .with_children(|root| {
+                            root.spawn((
+                                TextBundle::from_section(
+                                    "NC",
+                                    TextStyle {
+                                        font_size: 20.,
+                                        color: Color::rgb(0.9, 0.9, 0.9),
+                                        ..Default::default()
+                                    },
+                                ),
+                                Name::new(format!("Relay {} NC Button Text", i)),
+                            ));
+                        });
+                    });
+                }
+            });
         });
     });
 
@@ -593,6 +762,8 @@ fn accept_input(
     wires: Query<(Entity, &Wire)>,
     lights: Query<(Entity, &Light)>,
     buttons: Query<(Entity, &ButtonSwitch)>,
+    relay_switches: Query<(Entity, &RelaySwitch)>,
+    relay_coils: Query<(Entity, &RelayCoil)>,
     circuit_material: Res<CircuitHandles>,
     meshes: ResMut<Assets<Mesh>>,
     grid_origin: Query<Entity, With<GridOrigin>>,
@@ -614,6 +785,8 @@ fn accept_input(
             wire_origin,
             lights,
             buttons,
+            relay_switches,
+            relay_coils,
         ),
         CurrentlyPlacing::Light { id, label } => handle_light_placement(
             cmd,
@@ -638,8 +811,313 @@ fn accept_input(
             grid_origin,
             currently_placing,
         ),
-        CurrentlyPlacing::RelayCoil { id, label } => todo!(),
-        CurrentlyPlacing::RelaySwitch { id, label, typ } => todo!(),
+        CurrentlyPlacing::RelayCoil { id, label } => handle_relay_coil_placement(
+            cmd,
+            id,
+            label,
+            mouse_position,
+            mouse_button,
+            circuit_material,
+            meshes,
+            grid_origin,
+            currently_placing,
+        ),
+        CurrentlyPlacing::RelaySwitch { id, label, typ } => handle_relay_switch_placement(
+            cmd,
+            id,
+            label,
+            typ,
+            mouse_position,
+            mouse_button,
+            circuit_material,
+            meshes,
+            grid_origin,
+            currently_placing,
+        ),
+    }
+}
+// Exactly the same as buttons, but with a rectangle instead of a square
+fn handle_relay_coil_placement(
+    mut cmd: Commands,
+    id: usize,
+    label: String,
+    mouse_position: Vec2,
+    mouse_button: Res<Input<MouseButton>>,
+    circuit_material: Res<CircuitHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    grid_origin: Query<Entity, With<GridOrigin>>,
+    mut currently_placing: ResMut<CurrentlyPlacing>,
+) {
+    if mouse_button.just_pressed(MouseButton::Right) {
+        *currently_placing = CurrentlyPlacing::Wire;
+        return;
+    }
+
+    if mouse_button.just_pressed(MouseButton::Left) {
+        let mouse_grid_pos = convert_mouse_to_grid(mouse_position);
+        let Some(mouse_grid) = mouse_grid_pos else {
+            return;
+        };
+
+        let coil = cmd
+            .spawn((
+                Name::new(label.clone()),
+                RelayCoil {
+                    id,
+                    top: GridPosition {
+                        x: mouse_grid.x,
+                        y: mouse_grid.y + 1,
+                    },
+                    bottom: GridPosition {
+                        x: mouse_grid.x,
+                        y: mouse_grid.y - 1,
+                    },
+                    activated: false,
+                },
+                SpatialBundle::default(),
+            ))
+            .set_parent(grid_origin.single())
+            .id();
+
+        // Like other components, but with a rectangle instead of a square
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: meshes
+                    .add(shape::Quad::new(Vec2 { x: 30., y: 20. }).into())
+                    .into(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * mouse_grid.y as f32 + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Relay Coil"),
+        ))
+        .set_parent(coil);
+
+        // The two points
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: circuit_material.wire_point_mesh.clone(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * ((mouse_grid.y as f32) - 1.) + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Relay Coil Point1"),
+        ))
+        .set_parent(coil);
+
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: circuit_material.wire_point_mesh.clone(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * ((mouse_grid.y as f32) + 1.) + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Relay Coil Point2"),
+        ))
+        .set_parent(coil);
+
+        // a wire all the way through
+        let wire = cmd
+            .spawn(MaterialMesh2dBundle {
+                mesh: meshes
+                    .add(shape::Quad::new(Vec2 { x: 4., y: 40. }).into())
+                    .into(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * mouse_grid.y as f32 + 10.,
+                    2.,
+                )),
+                ..Default::default()
+            })
+            .set_parent(coil)
+            .id();
+
+        cmd.spawn(Text2dBundle {
+            text: Text::from_section(
+                label,
+                TextStyle {
+                    font_size: 20.,
+                    color: Color::WHITE,
+                    ..Default::default()
+                },
+            ),
+            transform: Transform::from_translation(Vec3 {
+                x: 0.,
+                y: 0.,
+                z: 5.,
+            }),
+            ..Default::default()
+        })
+        .set_parent(wire);
+
+        *currently_placing = CurrentlyPlacing::Wire;
+    }
+}
+
+// Exactly the same as buttons, but with the label -K{id} and the relayswitch component
+fn handle_relay_switch_placement(
+    mut cmd: Commands,
+    id: usize,
+    label: String,
+    typ: SwitchType,
+    mouse_position: Vec2,
+    mouse_button: Res<Input<MouseButton>>,
+    circuit_material: Res<CircuitHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    grid_origin: Query<Entity, With<GridOrigin>>,
+    mut currently_placing: ResMut<CurrentlyPlacing>,
+) {
+    if mouse_button.just_pressed(MouseButton::Right) {
+        *currently_placing = CurrentlyPlacing::Wire;
+        return;
+    }
+
+    if mouse_button.just_pressed(MouseButton::Left) {
+        let mouse_grid_pos = convert_mouse_to_grid(mouse_position);
+        let Some(mouse_grid) = mouse_grid_pos else {
+            return;
+        };
+
+        let relay = cmd
+            .spawn((
+                Name::new(label.clone()),
+                RelaySwitch {
+                    id,
+                    typ,
+                    top: GridPosition {
+                        x: mouse_grid.x,
+                        y: mouse_grid.y + 1,
+                    },
+                    bottom: GridPosition {
+                        x: mouse_grid.x,
+                        y: mouse_grid.y - 1,
+                    },
+                },
+                SpatialBundle::default(),
+            ))
+            .set_parent(grid_origin.single())
+            .id();
+
+        // Like button
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: circuit_material.wire_point_mesh.clone(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * ((mouse_grid.y as f32) - 1.) + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Relay Point1"),
+        ))
+        .set_parent(relay);
+
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: circuit_material.wire_point_mesh.clone(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * ((mouse_grid.y as f32) + 1.) + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Relay Point2"),
+        ))
+        .set_parent(relay);
+
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: meshes
+                    .add(shape::Quad::new(Vec2 { x: 20., y: 20. }).into())
+                    .into(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * mouse_grid.y as f32 + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Relay Square"),
+        ))
+        .set_parent(relay)
+        .with_children(|root| {
+            root.spawn((
+                Text2dBundle {
+                    text: Text::from_section(
+                        match typ {
+                            SwitchType::NormallyOpen => "NO",
+                            SwitchType::NormallyClosed => "NC",
+                        },
+                        TextStyle {
+                            font_size: 15.,
+                            color: Color::WHITE,
+                            ..Default::default()
+                        },
+                    ),
+                    transform: Transform::from_translation(Vec3 {
+                        x: 0.,
+                        y: 0.,
+                        z: 5.,
+                    }),
+                    ..Default::default()
+                },
+                Name::new("Relay Text"),
+            ));
+        });
+
+        // a wire all the way through
+        let wire = cmd
+            .spawn(MaterialMesh2dBundle {
+                mesh: meshes
+                    .add(shape::Quad::new(Vec2 { x: 4., y: 40. }).into())
+                    .into(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * mouse_grid.y as f32 + 10.,
+                    2.,
+                )),
+                ..Default::default()
+            })
+            .set_parent(relay)
+            .id();
+
+        cmd.spawn(Text2dBundle {
+            text: Text::from_section(
+                label,
+                TextStyle {
+                    font_size: 20.,
+                    color: Color::WHITE,
+                    ..Default::default()
+                },
+            ),
+            transform: Transform::from_translation(Vec3 {
+                x: 20.,
+                y: 0.,
+                z: 5.,
+            }),
+            ..Default::default()
+        })
+        .set_parent(wire);
+        *currently_placing = CurrentlyPlacing::Wire;
     }
 }
 
@@ -779,13 +1257,13 @@ fn handle_button_placement(
             text: Text::from_section(
                 label,
                 TextStyle {
-                    font_size: 25.,
+                    font_size: 20.,
                     color: Color::WHITE,
                     ..Default::default()
                 },
             ),
             transform: Transform::from_translation(Vec3 {
-                x: 25.,
+                x: 20.,
                 y: 0.,
                 z: 5.,
             }),
@@ -905,7 +1383,7 @@ fn handle_light_placement(
             text: Text::from_section(
                 label,
                 TextStyle {
-                    font_size: 25.,
+                    font_size: 20.,
                     color: Color::WHITE,
                     ..Default::default()
                 },
@@ -970,6 +1448,55 @@ fn handle_button_button_press(
     }
 }
 
+fn handle_relay_switch_button_press(
+    mut iteraction: Query<(&Interaction, &RelaySwitchSelect), Changed<Interaction>>,
+    placed_relay_switches: Query<&RelaySwitch>,
+    mut currently_placing: ResMut<CurrentlyPlacing>,
+) {
+    for (interaction, relay_switch_select) in iteraction.iter_mut() {
+        if placed_relay_switches
+            .iter()
+            .filter(|relay_switch| {
+                relay_switch.id == relay_switch_select.id
+                    && relay_switch.typ == relay_switch_select.typ
+            })
+            .collect::<Vec<_>>()
+            .len()
+            >= 5
+        {
+            continue;
+        }
+        if *interaction == Interaction::Pressed {
+            *currently_placing = CurrentlyPlacing::RelaySwitch {
+                id: relay_switch_select.id,
+                label: format!("-K{}", relay_switch_select.id),
+                typ: relay_switch_select.typ,
+            };
+        }
+    }
+}
+
+fn handle_relay_coil_button_press(
+    mut interaction: Query<(&Interaction, &mut RelayCoilSelect), Changed<Interaction>>,
+    placed_relay_coils: Query<&RelayCoil>,
+    mut currently_placing: ResMut<CurrentlyPlacing>,
+) {
+    for (interaction, relay_coil_select) in interaction.iter_mut() {
+        if placed_relay_coils
+            .iter()
+            .any(|relay_coil| relay_coil.id == relay_coil_select.id)
+        {
+            continue;
+        }
+        if *interaction == Interaction::Pressed {
+            *currently_placing = CurrentlyPlacing::RelayCoil {
+                id: relay_coil_select.id,
+                label: format!("-K{}", relay_coil_select.id),
+            };
+        }
+    }
+}
+
 fn handle_wire_placement(
     mut cmd: Commands,
     mouse_position: Vec2,
@@ -981,6 +1508,8 @@ fn handle_wire_placement(
     mut wire_origin: Local<Option<GridPosition>>,
     lights: Query<(Entity, &Light)>,
     buttons: Query<(Entity, &ButtonSwitch)>,
+    relay_switches: Query<(Entity, &RelaySwitch)>,
+    relay_coils: Query<(Entity, &RelayCoil)>,
 ) {
     let mouse_grid_pos = convert_mouse_to_grid(mouse_position);
     match mouse_grid_pos {
@@ -1131,6 +1660,28 @@ fn handle_wire_placement(
                         cmd.entity(e).despawn_recursive();
                     }
                 }
+
+                for (e, relay_switch) in relay_switches.iter() {
+                    let mut middle = relay_switch.top;
+                    middle.y -= 1;
+                    if relay_switch.top == *mouse_grid
+                        || relay_switch.bottom == *mouse_grid
+                        || middle == *mouse_grid
+                    {
+                        cmd.entity(e).despawn_recursive();
+                    }
+                }
+
+                for (e, relay_coil) in relay_coils.iter() {
+                    let mut middle = relay_coil.top;
+                    middle.y -= 1;
+                    if relay_coil.top == *mouse_grid
+                        || relay_coil.bottom == *mouse_grid
+                        || middle == *mouse_grid
+                    {
+                        cmd.entity(e).despawn_recursive();
+                    }
+                }
             }
         }
         None => {
@@ -1152,25 +1703,15 @@ fn simulate(
     wires: Query<&Wire>,
     mut button_input: Query<&mut UIButton>,
     button_switches: Query<&ButtonSwitch>,
-    _relay_coils: Query<&RelayCoil>,
-    _relay_switches: Query<&RelaySwitch>,
+    mut relay_coils: Query<&mut RelayCoil>,
+    relay_switches: Query<&RelaySwitch>,
     mut ui_lights: Query<&mut UILight>,
     lights: Query<&Light>,
     power_sources: Query<(&GridPosition, &Power)>,
 ) {
-    // As a prepass, switches could be transformed into wires or discarded depending on their state
-    // Buttons might have to be artificially held for multiple simulation cycles
+    // CAUTION! This does not cover when there are two consumers in series, for that, extra passes are needed, but it will work for now, if a consumer finds a not yet covered wire, that could be indicated as well
 
-    /* CAUTION! This does not cover when there are two consumers in series, for that, extra passes are needed, but it will work for now, if a consumer finds a not yet covered wire, that could be indicated as well
-    new algorithm:
-    from positive and negative power sources, jump through the "wires" until you can't anymore, if a node is encountered that has been visited by the other, indicate the short circuit state
-
-    // once that is done
-
-    for every consumer, check how their two nodes have been reached, if one is positive and one is negative, activate
-    */
-
-    // Turn wires into a 2 vectors. one with all Gridpositions, one with a tuple of indices for connections
+    // Turn wires into 2 vectors. one with all Gridpositions, one with a tuple of indices for connections
     let max_len = wires.iter().len() + button_switches.iter().len();
     let mut wire_positions: Vec<(GridPosition, Visited)> = Vec::with_capacity(max_len);
     let mut wire_connections: Vec<(usize, usize)> = Vec::with_capacity(max_len);
@@ -1192,7 +1733,28 @@ fn simulate(
         })
         .map(Wire::from);
 
-    for wire in wires.iter().map(Clone::clone).chain(button_wires) {
+    let mut active_relay_ids = Vec::new();
+    for mut relay_coil in relay_coils.iter_mut() {
+        if relay_coil.activated {
+            active_relay_ids.push(relay_coil.id);
+        }
+        relay_coil.activated = false;
+    }
+
+    let relay_wires = relay_switches
+        .iter()
+        .filter(|relay_switch| match relay_switch.typ {
+            SwitchType::NormallyOpen => active_relay_ids.contains(&relay_switch.id),
+            SwitchType::NormallyClosed => !active_relay_ids.contains(&relay_switch.id),
+        })
+        .map(Wire::from);
+
+    for wire in wires
+        .iter()
+        .map(Clone::clone)
+        .chain(button_wires)
+        .chain(relay_wires)
+    {
         let mut first_index = 0;
         let mut second_index = 0;
         for (pos, index) in &mut [
@@ -1261,6 +1823,28 @@ fn simulate(
                 .find(|ui_light| ui_light.id == light.id)
                 .unwrap()
                 .is_lit = true;
+        } else if wire_positions[top_index].1 == Visited::Unvisited
+            || wire_positions[bottom_index].1 == Visited::Unvisited
+        {
+            debug!("Unvisited Wire");
+        }
+    }
+
+    for mut relay_coil in relay_coils.iter_mut() {
+        let Some(top_index) = wire_positions.iter().position(|p| p.0 == relay_coil.top) else {
+            continue;
+        };
+        let Some(bottom_index) = wire_positions.iter().position(|p| p.0 == relay_coil.bottom)
+        else {
+            continue;
+        };
+
+        if (wire_positions[top_index].1 == Visited::Positive
+            && wire_positions[bottom_index].1 == Visited::Negative)
+            || (wire_positions[top_index].1 == Visited::Negative
+                && wire_positions[bottom_index].1 == Visited::Positive)
+        {
+            relay_coil.activated = true;
         } else if wire_positions[top_index].1 == Visited::Unvisited
             || wire_positions[bottom_index].1 == Visited::Unvisited
         {
