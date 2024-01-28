@@ -3,6 +3,7 @@
 use bevy::{
     prelude::*,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
+    ui,
     window::PrimaryWindow,
 };
 
@@ -85,6 +86,12 @@ struct UIButton {
     has_been_pressed: bool,
 }
 
+#[derive(Component)]
+struct ButtonSelect {
+    id: usize,
+    typ: SwitchType,
+}
+
 // This is the actual switch of the button
 #[derive(Component)]
 struct ButtonSwitch {
@@ -94,8 +101,8 @@ struct ButtonSwitch {
     bottom: GridPosition,
 }
 
-impl From<ButtonSwitch> for Wire {
-    fn from(button: ButtonSwitch) -> Self {
+impl From<&ButtonSwitch> for Wire {
+    fn from(button: &ButtonSwitch) -> Self {
         Self {
             first: button.top,
             second: button.bottom,
@@ -103,13 +110,14 @@ impl From<ButtonSwitch> for Wire {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
 enum SwitchType {
     NormallyOpen,
     NormallyClosed,
 }
 
 // A Wire represented as 2 points with a line between, can only go horizontally or vertically
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct Wire {
     first: GridPosition,
     second: GridPosition,
@@ -151,9 +159,24 @@ struct CircuitHandles {
 #[derive(Resource, Clone)]
 enum CurrentlyPlacing {
     Wire,
-    //Button { label: String },
-    //Relay { label: String },
-    Light { id: usize, label: String },
+    RelayCoil {
+        id: usize,
+        label: String,
+    },
+    RelaySwitch {
+        id: usize,
+        label: String,
+        typ: SwitchType,
+    },
+    Light {
+        id: usize,
+        label: String,
+    },
+    Button {
+        id: usize,
+        label: String,
+        typ: SwitchType,
+    },
 }
 
 impl Default for CurrentlyPlacing {
@@ -174,7 +197,12 @@ impl Plugin for SimPlugin {
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
-                (accept_input, change_light_opacity, handle_button_press),
+                (
+                    accept_input,
+                    change_light_opacity,
+                    handle_light_button_press,
+                    handle_button_button_press,
+                ),
             )
             .add_systems(FixedUpdate, simulate);
     }
@@ -225,7 +253,7 @@ fn setup(
                 style: Style {
                     width: Val::Px(280.),
                     display: Display::Flex,
-                    flex_direction: FlexDirection::Column,
+                    flex_direction: FlexDirection::Row,
                     ..Default::default()
                 },
                 background_color: BackgroundColor(Color::rgb(0.1, 0.1, 0.1)),
@@ -243,7 +271,6 @@ fn setup(
                         flex_grow: 1.,
                         flex_direction: FlexDirection::Column,
                         height: Val::Percent(100.),
-                        width: Val::Percent(100.),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -255,7 +282,7 @@ fn setup(
                     root.spawn((
                         ButtonBundle {
                             style: Style {
-                                width: Val::Px(100.),
+                                width: Val::Px(50.),
                                 height: Val::Px(50.),
                                 justify_content: JustifyContent::Center,
                                 align_items: AlignItems::Center,
@@ -295,6 +322,154 @@ fn setup(
                             ),
                             Name::new(format!("Light {} Button Text", i)),
                         ));
+                    });
+                }
+            });
+            root.spawn((
+                NodeBundle {
+                    style: Style {
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Column,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                Name::new("Button Container"),
+            ))
+            .with_children(|root| {
+                for i in 1..=8 {
+                    let color = Color::Rgba {
+                        red: random.gen_range(0.0..1.0),
+                        green: random.gen_range(0.0..1.0),
+                        blue: random.gen_range(0.0..1.0),
+                        alpha: 1.,
+                    };
+                    root.spawn((
+                        NodeBundle {
+                            style: Style {
+                                display: Display::Flex,
+                                flex_direction: FlexDirection::Row,
+                                height: Val::Px(50.),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                        Name::new(format!("Button {} Container", i)),
+                    ))
+                    .with_children(|root| {
+                        // Button for pressing
+                        root.spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Px(50.),
+                                    height: Val::Px(50.),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    ..Default::default()
+                                },
+                                background_color: BackgroundColor(color),
+
+                                ..Default::default()
+                            },
+                            Name::new(format!("Button {} Button", i)),
+                            UIButton {
+                                id: i,
+                                has_been_pressed: false,
+                            },
+                        ))
+                        .with_children(|root| {
+                            root.spawn((
+                                TextBundle::from_section(
+                                    format!("-S{i}"),
+                                    TextStyle {
+                                        font_size: 20.,
+                                        color: Color::rgb(0.9, 0.9, 0.9),
+                                        ..Default::default()
+                                    },
+                                ),
+                                Name::new(format!("Button {} Button Text", i)),
+                            ));
+                        });
+                        // The two buttons for placing the normally open and normally closed switch
+
+                        root.spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Px(50.),
+                                    height: Val::Px(50.),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(Val::Px(7.)),
+                                    ..Default::default()
+                                },
+                                border_color: BorderColor(Color::Rgba {
+                                    red: 0.9,
+                                    green: 0.9,
+                                    blue: 0.9,
+                                    alpha: 0.4,
+                                }),
+                                background_color: BackgroundColor(color),
+                                ..Default::default()
+                            },
+                            Name::new(format!("Button {} NO Button", i)),
+                            ButtonSelect {
+                                id: i,
+                                typ: SwitchType::NormallyOpen,
+                            },
+                        ))
+                        .with_children(|root| {
+                            root.spawn((
+                                TextBundle::from_section(
+                                    "NO",
+                                    TextStyle {
+                                        font_size: 20.,
+                                        color: Color::rgb(0.9, 0.9, 0.9),
+                                        ..Default::default()
+                                    },
+                                ),
+                                Name::new(format!("Button {} NO Button Text", i)),
+                            ));
+                        });
+
+                        root.spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Px(50.),
+                                    height: Val::Px(50.),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(Val::Px(7.)),
+                                    ..Default::default()
+                                },
+                                border_color: BorderColor(Color::Rgba {
+                                    red: 0.9,
+                                    green: 0.9,
+                                    blue: 0.9,
+                                    alpha: 0.4,
+                                }),
+                                background_color: BackgroundColor(color),
+
+                                ..Default::default()
+                            },
+                            Name::new(format!("Button {} NC Button", i)),
+                            ButtonSelect {
+                                id: i,
+                                typ: SwitchType::NormallyClosed,
+                            },
+                        ))
+                        .with_children(|root| {
+                            root.spawn((
+                                TextBundle::from_section(
+                                    "NC",
+                                    TextStyle {
+                                        font_size: 20.,
+                                        color: Color::rgb(0.9, 0.9, 0.9),
+                                        ..Default::default()
+                                    },
+                                ),
+                                Name::new(format!("Button {} NC Button Text", i)),
+                            ));
+                        });
                     });
                 }
             });
@@ -417,6 +592,7 @@ fn accept_input(
     wire_origin: Local<Option<GridPosition>>,
     wires: Query<(Entity, &Wire)>,
     lights: Query<(Entity, &Light)>,
+    buttons: Query<(Entity, &ButtonSwitch)>,
     circuit_material: Res<CircuitHandles>,
     meshes: ResMut<Assets<Mesh>>,
     grid_origin: Query<Entity, With<GridOrigin>>,
@@ -437,6 +613,7 @@ fn accept_input(
             grid_origin,
             wire_origin,
             lights,
+            buttons,
         ),
         CurrentlyPlacing::Light { id, label } => handle_light_placement(
             cmd,
@@ -449,6 +626,173 @@ fn accept_input(
             grid_origin,
             currently_placing,
         ),
+        CurrentlyPlacing::Button { id, label, typ } => handle_button_placement(
+            cmd,
+            id,
+            label,
+            typ,
+            mouse_position,
+            mouse_button,
+            circuit_material,
+            meshes,
+            grid_origin,
+            currently_placing,
+        ),
+        CurrentlyPlacing::RelayCoil { id, label } => todo!(),
+        CurrentlyPlacing::RelaySwitch { id, label, typ } => todo!(),
+    }
+}
+
+fn handle_button_placement(
+    mut cmd: Commands,
+    id: usize,
+    label: String,
+    typ: SwitchType,
+    mouse_position: Vec2,
+    mouse_button: Res<Input<MouseButton>>,
+    circuit_material: Res<CircuitHandles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    grid_origin: Query<Entity, With<GridOrigin>>,
+    mut currently_placing: ResMut<CurrentlyPlacing>,
+) {
+    if mouse_button.just_pressed(MouseButton::Right) {
+        *currently_placing = CurrentlyPlacing::Wire;
+        return;
+    }
+
+    if mouse_button.just_pressed(MouseButton::Left) {
+        let mouse_grid_pos = convert_mouse_to_grid(mouse_position);
+        let Some(mouse_grid) = mouse_grid_pos else {
+            return;
+        };
+
+        let button = cmd
+            .spawn((
+                Name::new(label.clone()),
+                ButtonSwitch {
+                    id,
+                    typ,
+                    top: GridPosition {
+                        x: mouse_grid.x,
+                        y: mouse_grid.y + 1,
+                    },
+                    bottom: GridPosition {
+                        x: mouse_grid.x,
+                        y: mouse_grid.y - 1,
+                    },
+                },
+                SpatialBundle::default(),
+            ))
+            .set_parent(grid_origin.single())
+            .id();
+
+        // Like wire, but with label in the middle on big circle
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: circuit_material.wire_point_mesh.clone(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * ((mouse_grid.y as f32) - 1.) + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Button Point1"),
+        ))
+        .set_parent(button);
+
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: circuit_material.wire_point_mesh.clone(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * ((mouse_grid.y as f32) + 1.) + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Button Point2"),
+        ))
+        .set_parent(button);
+        // The middle, for the button just a square with eiter NC or NO on it
+        cmd.spawn((
+            MaterialMesh2dBundle {
+                mesh: meshes
+                    .add(shape::Quad::new(Vec2 { x: 20., y: 20. }).into())
+                    .into(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * mouse_grid.y as f32 + 10.,
+                    2.5,
+                )),
+                ..Default::default()
+            },
+            Name::new("Button Square"),
+        ))
+        .set_parent(button)
+        .with_children(|root| {
+            root.spawn((
+                Text2dBundle {
+                    text: Text::from_section(
+                        match typ {
+                            SwitchType::NormallyOpen => "NO",
+                            SwitchType::NormallyClosed => "NC",
+                        },
+                        TextStyle {
+                            font_size: 15.,
+                            color: Color::WHITE,
+                            ..Default::default()
+                        },
+                    ),
+                    transform: Transform::from_translation(Vec3 {
+                        x: 0.,
+                        y: 0.,
+                        z: 5.,
+                    }),
+                    ..Default::default()
+                },
+                Name::new("Button Text"),
+            ));
+        });
+
+        // a wire all the way through
+        let wire = cmd
+            .spawn(MaterialMesh2dBundle {
+                mesh: meshes
+                    .add(shape::Quad::new(Vec2 { x: 4., y: 40. }).into())
+                    .into(),
+                material: circuit_material.wire_material.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    20. * mouse_grid.x as f32 + 10.,
+                    20. * mouse_grid.y as f32 + 10.,
+                    2.,
+                )),
+                ..Default::default()
+            })
+            .set_parent(button)
+            .id();
+
+        cmd.spawn(Text2dBundle {
+            text: Text::from_section(
+                label,
+                TextStyle {
+                    font_size: 25.,
+                    color: Color::WHITE,
+                    ..Default::default()
+                },
+            ),
+            transform: Transform::from_translation(Vec3 {
+                x: 25.,
+                y: 0.,
+                z: 5.,
+            }),
+            ..Default::default()
+        })
+        .set_parent(wire);
+        *currently_placing = CurrentlyPlacing::Wire;
     }
 }
 
@@ -579,7 +923,7 @@ fn handle_light_placement(
     }
 }
 
-fn handle_button_press(
+fn handle_light_button_press(
     mut interaction: Query<(&Interaction, &mut UILight), Changed<Interaction>>,
     placed_lights: Query<&Light>,
     mut currently_placing: ResMut<CurrentlyPlacing>,
@@ -597,6 +941,35 @@ fn handle_button_press(
     }
 }
 
+fn handle_button_button_press(
+    mut press_interaction: Query<(&Interaction, &mut UIButton)>,
+    mut place_interaction: Query<(&Interaction, &mut ButtonSelect)>,
+    placed_buttons: Query<&ButtonSwitch>,
+    mut currently_placing: ResMut<CurrentlyPlacing>,
+) {
+    for (interaction, mut ui_button) in press_interaction.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            ui_button.has_been_pressed = true;
+        }
+    }
+
+    for (interaction, button_select) in place_interaction.iter_mut() {
+        if placed_buttons
+            .iter()
+            .any(|button| button.id == button_select.id && button.typ == button_select.typ)
+        {
+            continue;
+        }
+        if *interaction == Interaction::Pressed {
+            *currently_placing = CurrentlyPlacing::Button {
+                id: button_select.id,
+                label: format!("-S{}", button_select.id),
+                typ: button_select.typ,
+            };
+        }
+    }
+}
+
 fn handle_wire_placement(
     mut cmd: Commands,
     mouse_position: Vec2,
@@ -607,6 +980,7 @@ fn handle_wire_placement(
     grid_origin: Query<Entity, With<GridOrigin>>,
     mut wire_origin: Local<Option<GridPosition>>,
     lights: Query<(Entity, &Light)>,
+    buttons: Query<(Entity, &ButtonSwitch)>,
 ) {
     let mouse_grid_pos = convert_mouse_to_grid(mouse_position);
     match mouse_grid_pos {
@@ -746,6 +1120,17 @@ fn handle_wire_placement(
                         cmd.entity(e).despawn_recursive();
                     }
                 }
+
+                for (e, button) in buttons.iter() {
+                    let mut middle = button.top;
+                    middle.y -= 1;
+                    if button.top == *mouse_grid
+                        || button.bottom == *mouse_grid
+                        || middle == *mouse_grid
+                    {
+                        cmd.entity(e).despawn_recursive();
+                    }
+                }
             }
         }
         None => {
@@ -764,10 +1149,9 @@ enum Visited {
 }
 
 fn simulate(
-    _time: Res<Time>,
     wires: Query<&Wire>,
-    _button_input: Query<&mut UIButton>,
-    _button_switches: Query<&ButtonSwitch>,
+    mut button_input: Query<&mut UIButton>,
+    button_switches: Query<&ButtonSwitch>,
     _relay_coils: Query<&RelayCoil>,
     _relay_switches: Query<&RelaySwitch>,
     mut ui_lights: Query<&mut UILight>,
@@ -787,11 +1171,28 @@ fn simulate(
     */
 
     // Turn wires into a 2 vectors. one with all Gridpositions, one with a tuple of indices for connections
-    let max_len = wires.iter().len();
+    let max_len = wires.iter().len() + button_switches.iter().len();
     let mut wire_positions: Vec<(GridPosition, Visited)> = Vec::with_capacity(max_len);
     let mut wire_connections: Vec<(usize, usize)> = Vec::with_capacity(max_len);
 
-    for wire in wires.iter() {
+    // Button prepass, resetting all ui buttons and transforming fitting buttons into wires
+    let mut active_button_ids = Vec::new();
+    for mut button in button_input.iter_mut() {
+        if button.has_been_pressed {
+            active_button_ids.push(button.id);
+        }
+        button.has_been_pressed = false;
+    }
+
+    let button_wires = button_switches
+        .iter()
+        .filter(|button| match button.typ {
+            SwitchType::NormallyOpen => active_button_ids.contains(&button.id),
+            SwitchType::NormallyClosed => !active_button_ids.contains(&button.id),
+        })
+        .map(Wire::from);
+
+    for wire in wires.iter().map(Clone::clone).chain(button_wires) {
         let mut first_index = 0;
         let mut second_index = 0;
         for (pos, index) in &mut [
